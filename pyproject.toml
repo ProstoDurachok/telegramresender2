@@ -1,0 +1,39 @@
+[project]
+name = "telegramresender"
+version = "1.4.0"
+description = "Telegram bot for resending messages to channels"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "psycopg==3.2.3",
+    "pydantic-settings==2.7.0",
+    "pydantic==2.10.3",
+    "python-telegram-bot[callback-data,rate-limiter]==21.9",
+    "rich==13.9.4",
+]
+
+[dependency-groups]
+dev = [
+    "poethepoet==0.31.1",
+    "pre-commit==4.0.1",
+    "psycopg[binary]==3.2.3",
+]
+
+[tool.poe.tasks]
+_git = "git add ."
+_lint = "pre-commit run --all-files"
+
+lint = ["_git", "_lint"]
+run = "uv run client.py"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["F", "UP", "B", "SIM", "I"]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+docstring-code-format = true
