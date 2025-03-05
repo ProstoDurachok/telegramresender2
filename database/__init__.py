@@ -55,6 +55,23 @@ def get_user(user_id: PositiveInt):
 
     return UserModel.model_validate({'id': user[0], 'user_id': user[1], 'role': user[2]})
 
+def get_all_users():
+    """Получить всех пользователей из базы данных."""
+    try:
+        users = execute('SELECT * FROM users', fetch='all')
+        if not users:
+            return []
+
+        # Преобразуем результат в модели пользователей
+        return [
+            UserModel.model_validate({'id': user[0], 'user_id': user[1], 'role': user[2]})
+            for user in users
+        ]
+    except Exception as e:
+        logger.error(f"Ошибка при получении всех пользователей: {str(e)}")
+        return []
+
+
 
 def add_user(user_id: int, role: str):
     """Добавляет нового пользователя в базу данных."""
@@ -79,6 +96,27 @@ def add_user(user_id: int, role: str):
         logger.error(f"Ошибка при добавлении пользователя в базу данных: {str(e)}")
         return f"Ошибка при добавлении пользователя: {str(e)}"
 
+
+def update_user_role(user_id: int, new_role: str):
+    """Обновить роль пользователя."""
+    try:
+        if new_role not in ['admin', 'operator', 'user']:
+            return "Ошибка: роль должна быть admin, operator или user."
+
+        execute(f"UPDATE users SET role = '{new_role}' WHERE user_id = {user_id}")
+        return f"Роль пользователя с ID {user_id} обновлена на {new_role}."
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении роли: {str(e)}")
+        return f"Ошибка при обновлении роли: {str(e)}"
+
+def delete_user(user_id: int):
+    """Удалить пользователя из базы данных."""
+    try:
+        execute(f"DELETE FROM users WHERE user_id = {user_id}")
+        return f"Пользователь с ID {user_id} удален."
+    except Exception as e:
+        logger.error(f"Ошибка при удалении пользователя: {str(e)}")
+        return f"Ошибка при удалении пользователя: {str(e)}"
 
 
 
