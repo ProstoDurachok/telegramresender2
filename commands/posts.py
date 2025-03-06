@@ -23,8 +23,13 @@ async def posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = get_user(sender.id)
 
+    # Проверка роли пользователя
+    if user and user.role == 'user':  # Предполагаем, что у пользователя есть атрибут role
+        if message:
+            return await message.reply_text('У вас нет доступа к данному боту. Для доступа обратитесь к @Prosto_Durachok')
+
     if not user and message:
-        return await message.reply_text('У вас нет доступа к данному боту.')
+        return await message.reply_text('У вас нет доступа к данному боту. Для доступа обратитесь к @Prosto_Durachok')
 
     page = user_data.get('posts_channels_page', 0)
     selected_channels = user_data.get('posts_selected_channels', [])
@@ -41,13 +46,14 @@ async def posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     navigation_buttons: list[InlineKeyboardButton] = []
     action_buttons: list[InlineKeyboardButton] = []
 
+
     for channel in db_channels:
         checkmark = '✅' if channel.channel_id in selected_channels else '❌'
         channel_button = InlineKeyboardButton(
             f'{checkmark} {channel.channel_name}',
             callback_data=f'posts_channels_toggle_{channel.channel_id}',
         )
-        link_button = InlineKeyboardButton('🔗 Перейти', url=f'https://t.me/{channel.channel_link}')
+        link_button = InlineKeyboardButton('🔗 Перейти', url=f'{channel.channel_link}')
         keyboard.append([channel_button, link_button])
 
     if page > 0:

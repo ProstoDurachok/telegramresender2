@@ -1,44 +1,46 @@
 from logging import getLogger
 from telegram import BotCommand, Update
 from telegram.ext import CommandHandler, ContextTypes
-from database import get_user,add_user
+from database import get_user, add_user
 from utils.functions import get_message_context, get_user_context
 
 logger = getLogger(__name__)
 
-# Команда добавления пользователя
+# Команда добавления пользователя (только для админов)
 async def add_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender = await get_user_context(update, context)
     message = await get_message_context(update, context)
 
-    logger.info(f'User {sender.id} started the bot')
+    logger.info(f'User {sender.id} is trying to add a new user')
 
     user = get_user(sender.id)
-
     if not user:
         return await message.reply_text('У вас нет доступа к данному боту. Для доступа обратитесь к @Prosto_Durachok')
 
-    # Если пользователь администратор, даем возможность добавить пользователя
-    if user.role == 'admin' and context.args:
-        if len(context.args) < 2:
-            return await message.reply_text('Использование: /add_user user_id role (admin/operator/user)')
+    # Проверка на права администратора
+    if user.role != 'admin':
+        return await message.reply_text('Ошибка: у вас недостаточно прав для выполнения этой команды.')
 
-        try:
-            new_user_id = int(context.args[0])
-            new_role = context.args[1]
+    if not context.args or len(context.args) < 2:
+        return await message.reply_text('Использование: /add_user user_id роль (admin/operator/user)')
 
-            if new_role not in ['admin', 'operator', 'user']:
-                return await message.reply_text('Ошибка: роль должна быть admin, operator или user.')
+    try:
+        new_user_id = int(context.args[0])
+        new_role = context.args[1]
 
-            # Синхронный вызов add_user без await
-            result = add_user(new_user_id, new_role)  # Без await
-            return await message.reply_text(result)
+        if new_role not in ['admin', 'operator', 'user']:
+            return await message.reply_text('Ошибка: роль должна быть admin, operator или user.')
 
-        except ValueError:
-            return await message.reply_text('Ошибка: user_id должен быть числом.')
+        if get_user(new_user_id):
+            return await message.reply_text(f'Ошибка: пользователь с ID {new_user_id} уже существует.')
 
-    return await message.reply_text('Для добавления пользователя используйте команду с аргументами: user_id и роль.')
+        # Добавление нового пользователя
+        result = add_user(new_user_id, new_role)
+        return await message.reply_text(result)
+
+    except ValueError:
+        return await message.reply_text('Ошибка: user_id должен быть числом.')
 
 # Обработчик команды
 handler = CommandHandler('add_user', add_user_command)
-command = (BotCommand('add_user', 'Добавить нового пользователя'), handler)
+command = (BotCommand('add_user', 'Добавить нового пользователя (только для админов)'), handler)

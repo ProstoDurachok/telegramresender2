@@ -45,11 +45,13 @@ async def channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(sender.id)
     selected_channels = user_data.get('selected_channels', [])
 
-    if (not user or user and not user.role) and message:
-        return await message.reply_text('У вас нет доступа к данному боту.')
+    if not user or not user.role or user.role == 'user':
+        if message:
+            return await message.reply_text('У вас нет доступа к данному боту. Для доступа обратитесь к @Prosto_Durachok')
+        elif query:
+            return await query.answer('У вас нет доступа к данному боту.', show_alert=True)
 
     page = user_data.get('channels_page', 0)
-
     if page < 0:
         page = 0
 
@@ -86,7 +88,6 @@ async def channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         channels_buttons.append(
             InlineKeyboardButton('➕ Добавить канал', callback_data='channels_add')
         )
-
         channels_buttons.append(
             InlineKeyboardButton('🗑 Удалить канал', callback_data='channels_delete')
         )
@@ -95,7 +96,6 @@ async def channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         action_buttons.append(
             InlineKeyboardButton('✅ Выбрать все каналы', callback_data='channels_all')
         )
-
     else:
         action_buttons.append(
             InlineKeyboardButton('❌ Отменить выбор', callback_data='channels_clear')

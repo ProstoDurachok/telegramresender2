@@ -56,8 +56,8 @@ async def groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = get_user(sender.id)
 
-    if not user:
-        return await message.reply_text('У вас нет доступа к данному боту.')
+    if not user or not user.role or user.role == 'user':
+        return await message.reply_text('У вас нет доступа к данному боту. Для доступа обратитесь к @Prosto_Durachok')
 
     page = user_data.get('groups_page', 0)
 
@@ -147,7 +147,7 @@ async def group_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'{checkmark} {channel.channel_name}',
             callback_data=f'group_channels_toggle_{channel.channel_id}',
         )
-        link_button = InlineKeyboardButton('🔗 Перейти', url=f'https://t.me/{channel.channel_link}')
+        link_button = InlineKeyboardButton('🔗 Перейти', url=f'{channel.channel_link}')
         keyboard.append([channel_button, link_button])
 
     if page > 0:
@@ -271,7 +271,7 @@ async def group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f'{checkmark} {channel.channel_name}',
             callback_data=f'group_add_toggle_{channel.channel_id}',
         )
-        link_button = InlineKeyboardButton('🔗 Перейти', url=f'https://t.me/{channel.channel_link}')
+        link_button = InlineKeyboardButton('🔗 Перейти', url=f'{channel.channel_link}')
         keyboard.append([channel_button, link_button])
 
     if page > 0:
