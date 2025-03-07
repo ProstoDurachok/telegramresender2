@@ -19,7 +19,10 @@ from database import (
     get_channels,
     get_channels_by_group,
     get_groups,
+    delete_group_if_no_channels,
     get_total_channels,
+    get_user_channels,
+    get_total_user_channels,
     get_total_channels_for_group,
     get_total_groups,
     get_user,
@@ -66,8 +69,9 @@ async def groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f'User {sender.id} requested groups [Page: {page + 1}]')
 
-    db_groups_count = get_total_groups()
-    db_groups = get_groups(limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
+    db_groups_count = get_total_groups(user_id=sender.id)
+    db_groups = get_groups(user_id=sender.id, limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
+
 
     keyboard = []
     navigation_buttons = []
@@ -95,7 +99,7 @@ async def groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard.append(navigation_buttons)
 
-    if user.role == 'admin':
+    if user.role == 'admin' or user.role == 'operator':
         keyboard.append(
             [
                 InlineKeyboardButton('➕ Создать Группу', callback_data='groups_add'),
@@ -103,7 +107,7 @@ async def groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await message.reply_text(
-        f'Выберите группу. Всего групп: {db_groups_count}',
+        f'Выберите группу:',
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -130,6 +134,15 @@ async def group_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f'User {user.id} requested channels of group: {group_id} [Page: {page + 1}]')
 
+    # Проверяем количество каналов в группе
+    total_channels = get_total_channels_for_group(group_id)
+    if total_channels == 0:
+        # Удаляем группу, если в ней нет каналов
+        delete_group_if_no_channels(group_id)
+
+        # Получаем обновленный список групп
+        return await update_groups_list(update, context, callback_data)
+
     db_channels = get_channels_by_group(
         group_id, limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE
     )
@@ -155,12 +168,12 @@ async def group_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton('⬅️ Предыдущая', callback_data='group_channels_prev_page')
         )
 
-    if (page + 1) * CHANNELS_PER_PAGE < get_total_channels_for_group(group_id):
+    if (page + 1) * CHANNELS_PER_PAGE < total_channels:
         navigation_buttons.append(
             InlineKeyboardButton('Следующая ➡️', callback_data='group_channels_next_page')
         )
 
-    if len(selected_group_channels) != get_total_channels_for_group(group_id):
+    if len(selected_group_channels) != total_channels:
         navigation_buttons.append(
             InlineKeyboardButton('✅ Выбрать все каналы', callback_data='group_select_all')
         )
@@ -186,7 +199,8 @@ async def group_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton('🏠 Главное меню', callback_data='group_menu_button'),
     ]
 
-    if user_role == 'admin':
+    user = get_user(user.id)  # Получаем данные из базы
+    if user and (user.role == 'admin' or user.role == 'operator'):
         buttons.append(
             InlineKeyboardButton('⚙️ Настройки группы', callback_data='group_settings'),
         )
@@ -195,6 +209,61 @@ async def group_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await callback_data.edit_message_text(
         text=f'Каналов в группе: {db_channels_length}',
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+# Функция для обновления списка групп
+async def update_groups_list(update: Update, context: ContextTypes.DEFAULT_TYPE, callback_data):
+    user = await get_user_context(update, context)
+    user_data = context.user_data
+
+    # Перезапрашиваем группы, доступные пользователю
+    groups = get_groups(user_id=user.id, limit=CHANNELS_PER_PAGE, offset=user_data.get('groups_page', 0) * CHANNELS_PER_PAGE)
+    
+    if not groups:
+        return await callback_data.answer('У вас нет доступных групп.')
+
+    # Формируем список кнопок с группами
+    keyboard = []
+    navigation_buttons = []
+
+    for group in groups:
+        group_button = InlineKeyboardButton(
+            f'{group.group_name}',
+            callback_data=f'groups_select_{group.id}',
+        )
+        keyboard.append(
+            [
+                group_button,
+            ]
+        )
+    # Кнопки для навигации по страницам
+    page = user_data.get('groups_page', 0)
+    total_groups_count = get_total_groups(user_id=user.id)
+    
+    if page > 0:
+        navigation_buttons.append(
+            InlineKeyboardButton('⬅️ Предыдущая', callback_data='groups_prev_page')
+        )
+
+    if (page + 1) * CHANNELS_PER_PAGE < total_groups_count:
+        navigation_buttons.append(
+            InlineKeyboardButton('Следующая ➡️', callback_data='groups_next_page')
+        )
+
+    keyboard.append(navigation_buttons)
+
+    # Кнопка для создания группы (если роль 'admin' или 'operator')
+    user = get_user(user.id)  # Получаем данные из базы
+    if user.role == 'admin' or user.role == 'operator':
+        keyboard.append(
+            [
+                InlineKeyboardButton('➕ Создать Группу', callback_data='groups_add'),
+            ]
+        )
+    # Отправляем обновленное сообщение с группами
+    await callback_data.edit_message_text(
+        text='Выберите группу:',
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -257,7 +326,7 @@ async def group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f'User {user.id} requested channels to add to group [Page: {page+1}]')
 
-    db_channels = get_channels(limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
+    db_channels = get_user_channels(user.id, limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
 
     if not db_channels:
         return await callback_data.answer('Нет каналов.')
@@ -333,7 +402,7 @@ async def group_add_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f'User {user.id} requested channels to add of group: {group_id} [Page: {page+1}]')
 
-    db_channels = get_channels(limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
+    db_channels = get_user_channels(sender.id, limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
 
     if not db_channels:
         return await callback_data.answer('Нет каналов.')
@@ -370,7 +439,7 @@ async def group_add_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await callback_data.edit_message_text(
-        f'Выберите каналы для новой группы {group_id}:',
+        f'Выберите каналы для новой группы:',
         reply_markup=reply_markup,
     )
     return await callback_data.answer()
@@ -416,8 +485,8 @@ async def group_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if page < 0:
         page = 0
 
-    db_groups_count = get_total_groups()
-    db_groups = get_groups(limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
+    db_groups_count = get_total_groups(user_id=sender.id)
+    db_groups = get_groups(limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE, user_id=sender.id)
 
     keyboard = []
     navigation_buttons = []
@@ -451,7 +520,7 @@ async def group_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     return await callback_data.edit_message_text(
-        f'Выберите группу. Всего групп: {db_groups_count}',
+        f'Выберите группу:',
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -479,7 +548,7 @@ async def group_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = chunk_button(buttons, 2)
 
     return await callback_data.edit_message_text(
-        text=f'Настройки группы {group_id}:',
+        text=f'Настройки группы:',
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -501,8 +570,8 @@ async def group_channels_add_toggle(update: Update, context: ContextTypes.DEFAUL
     if page < 0:
         page = 0
 
-    db_channels_count = get_total_channels()
-    db_channels = get_channels(limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
+    db_channels_count = get_total_user_channels(sender.id)
+    db_channels = get_user_channels(sender.id, limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
 
     keyboard = []
     navigation_buttons = []
@@ -538,7 +607,7 @@ async def group_channels_add_toggle(update: Update, context: ContextTypes.DEFAUL
         logger.info(f'User {sender.id} requested channels (page: {page + 1})')
 
         await callback_query.edit_message_text(
-            f'Добавляем каналы в группу - {group_id}',
+            f'Добавляем каналы в группу',
             reply_markup=reply_markup,
         )
         await callback_query.answer()
@@ -602,7 +671,7 @@ async def group_channels_delete_toggle(update: Update, context: ContextTypes.DEF
         logger.info(f'User {sender.id} requested channels (page: {page + 1})')
 
         await callback_query.edit_message_text(
-            f'Удаляем каналы из группы - {group_id}',
+            f'Удаляем каналы из группы',
             reply_markup=reply_markup,
         )
         await callback_query.answer()
@@ -855,17 +924,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not user_data:
             user_data = {
-                'group_add_channels': [],
+                'group_add_channels': [],  # Каналы, которые выбраны
             }
 
         group_id = user_data.get('selected_group_id', 0)
         selected_channels = []
 
-        for channel in get_channels(-1):
+        # Получаем каналы, доступные только текущему пользователю
+        user_channels = get_user_channels(user.id)  # Получаем каналы пользователя
+
+        # Добавляем каналы в список только если они доступны для пользователя
+        for channel in user_channels:
+            # Добавляем канал в список только если он доступен для группы
             selected_channels.append(channel.channel_id)
 
+        # Сохраняем выбранные каналы в user_data
         context.user_data['group_add_channels'] = selected_channels
 
+        # Перезапускаем процесс выбора каналов, чтобы отобразить выбранные
         return await group_add(update, context)
 
     elif data == 'group_channels_clear':
@@ -1060,7 +1136,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 handler = CommandHandler('groups', groups)
-command = (BotCommand('groups', 'Список групп'), handler)
+command = (BotCommand('groups', 'Список групп каналов'), handler)
 
 button_callbacks = [
     button_callback,

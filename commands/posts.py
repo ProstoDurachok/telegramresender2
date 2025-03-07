@@ -5,7 +5,7 @@ from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Upd
 from telegram.ext import CommandHandler, ContextTypes
 
 from commands.channels import CHANNELS_PER_PAGE
-from database import get_channels, get_posts, get_total_channels, get_user
+from database import get_channels, get_posts, get_total_channels, get_user, get_user_channels, get_total_user_channels
 from utils.functions import (
     get_callback_query_context,
     get_user_context,
@@ -39,8 +39,8 @@ async def posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f'User {sender.id} requested channels to get posts [Page: {page+1}]')
 
-    db_channels_count = get_total_channels()
-    db_channels = get_channels(limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
+    db_channels_count = get_total_user_channels(sender.id)
+    db_channels = get_user_channels(sender.id, limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
 
     keyboard: list[list[InlineKeyboardButton]] = []
     navigation_buttons: list[InlineKeyboardButton] = []
@@ -128,10 +128,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == 'posts_channels_all':
         logger.info(f'User {user.id} selected all channels')
 
-        selected_channels = [channel.channel_id for channel in get_channels(-1)]
+        # Получаем только доступные пользователю каналы
+        accessible_channels = [
+            channel.channel_id for channel in get_user_channels(user.id)
+        ]
+        
+        # Сохраняем только доступные каналы
+        selected_channels = accessible_channels
+
         context.user_data['posts_selected_channels'] = selected_channels
 
         return await posts(update, context)
+
 
     if data == 'posts_channels_clear':
         logger.info(f'User {user.id} cleared selected channels')
@@ -187,4 +195,4 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 handler = CommandHandler('posts', posts)
-command = (BotCommand('posts', 'Список постов'), handler)
+command = (BotCommand('posts', 'Список отправленных постов'), handler)

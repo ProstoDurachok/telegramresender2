@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Union
 
-from pydantic import BaseModel, PositiveInt
+from pydantic import BaseModel, PositiveInt, Field
 
 
 class UserModel(BaseModel):
@@ -11,7 +11,7 @@ class UserModel(BaseModel):
 
 
 class ChannelModel(BaseModel):
-    id: PositiveInt
+    id: Union[PositiveInt, None] = Field(default=None)
     user_id: PositiveInt
     channel_id: int
     channel_name: str

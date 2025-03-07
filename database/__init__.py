@@ -20,14 +20,14 @@ conninfo: dict[str, str | int] = {
 logger = getLogger(__name__)
 
 
-def execute(query: str, fetch: Literal['one', 'all'] = 'all', retries: int = 3):
+def execute(query: str, fetch: Literal['one', 'all'] = 'all', retries: int = 3, params = None):
     connection = connect(
         ' '.join([f'{key}={value}' for key, value in conninfo.items()]), autocommit=True
     )
 
     try:
         with connection.cursor() as cur:
-            cur.execute(query)  # type: ignore
+            cur.execute(query, params)  # type: ignore
 
             try:
                 if fetch == 'one':
@@ -41,7 +41,7 @@ def execute(query: str, fetch: Literal['one', 'all'] = 'all', retries: int = 3):
         if retries == 0:
             raise
 
-        return execute(query, fetch, retries - 1)
+        return execute(query, params, fetch, retries - 1)
 
 
 def get_user(user_id: PositiveInt):
@@ -51,9 +51,10 @@ def get_user(user_id: PositiveInt):
     )
 
     if not user:
-        return False
+        return None  # Возвращаем None, чтобы соответствовать стандартному поведению
 
     return UserModel.model_validate({'id': user[0], 'user_id': user[1], 'role': user[2]})
+
 
 def get_all_users():
     """Получить всех пользователей из базы данных."""
@@ -148,6 +149,44 @@ def get_channel(channel_id: int):
         }
     )
 
+def get_user_channels(user_id: int, limit: int = 20, offset: int = 0):
+    query = """
+        SELECT channel_id, channel_name, channel_link 
+        FROM user_chanels 
+        WHERE user_id = %s
+        LIMIT %s OFFSET %s
+    """
+    channels = execute(query, fetch='all', params=(user_id, limit, offset))
+
+    # Проверяем результат запроса
+    if not channels:
+        return []  # Возвращаем пустой список, если нет каналов
+
+    # Добавляем проверку на наличие нужных данных в каждом канале
+    return [
+        ChannelModel.model_validate({
+            'id': None,  # Нет id в запросе
+            'user_id': user_id,
+            'channel_id': ch[0],
+            'channel_name': ch[1],
+            'channel_link': ch[2],
+        })
+        for ch in channels if len(ch) == 3  # Проверяем, что в кортежах 3 элемента
+    ]
+
+
+def get_total_user_channels(user_id: int):
+    query = "SELECT COUNT(*) FROM user_chanels WHERE user_id = %s"
+    count = execute(query, fetch='one', params=(user_id,))  # Ensure the user_id is passed as a tuple
+    
+    if not count:
+        raise Exception('Count cannot be fetched')
+
+    return int(count[0])
+
+
+
+
 
 def save_channel(user_id: int, channel_id: int, channel_name: str, channel_link: str):
     execute(
@@ -184,9 +223,64 @@ def get_channels(limit: int, offset: int = 0):
         for channel in channels
     ]
 
+def get_channels_by_user(user_id: int, limit: int = 10, offset: int = 0):
+    """
+    Получает список каналов, доступных пользователю.
+    
+    :param user_id: ID пользователя
+    :param limit: Ограничение по количеству каналов
+    :param offset: Смещение для пагинации
+    :return: Список объектов каналов, доступных пользователю
+    """
+    # Если limit равен -1, устанавливаем его на общее количество каналов
+    if limit == -1:
+        limit = get_total_channels_by_user(user_id)
 
-def get_total_groups():
-    count = execute('SELECT COUNT(*) FROM user_group', fetch='one')
+    # Запрос для получения всех доступных каналов пользователя с пагинацией
+    query = """
+        SELECT c.channel_id, c.channel_name, c.channel_link 
+        FROM user_chanels c
+        WHERE uc.user_id = %s
+        ORDER BY c.channel_name ASC
+        LIMIT %s OFFSET %s
+    """
+    
+    # Выполняем запрос, чтобы получить каналы пользователя
+    channels = execute(query, fetch='all', params=(user_id, limit, offset))
+
+    # Если каналы найдены, возвращаем их как список объектов
+    if channels:
+        return [
+            ChannelModel.model_validate({
+                'id': None,  # ID может быть None, если не используется
+                'user_id': user_id,
+                'channel_id': ch[0],
+                'channel_name': ch[1],
+                'channel_link': ch[2],
+            })
+            for ch in channels
+        ]
+    else:
+        return []  # Возвращаем пустой список, если каналы не найдены
+
+
+
+def delete_group_if_no_channels(group_id: int):
+    """Функция для удаления группы, если в ней нет каналов."""
+    query = "DELETE FROM user_group WHERE id = %s"
+    execute(query, params=(group_id,))
+    logger.info(f'Группа с ID {group_id} удалена, так как не содержит каналов.')
+
+
+def get_total_groups(user_id: int):
+    count = execute(
+        f'''
+        SELECT COUNT(DISTINCT user_group.group_id)
+        FROM user_group
+        JOIN group_channel ON user_group.group_id = group_channel.group_id
+        WHERE user_group.user_id = {user_id}
+        ''', fetch='one'
+    )
 
     if not isinstance(count, tuple):
         raise Exception('Count can not be fetched')
@@ -194,12 +288,49 @@ def get_total_groups():
     return int(count[0])
 
 
-def get_groups(limit: int, offset: int = 0):
+
+def get_channels_by_group_id(group_id: int):
+    # Выполняем запрос для получения всех каналов, которые принадлежат группе с заданным id
+    channels = execute(
+        f"SELECT * FROM group_channel WHERE group_id = {group_id}",
+        fetch="all"
+    )
+    
+    # Если каналы есть, возвращаем их. Если нет, возвращаем пустой список.
+    return channels if channels else []
+
+
+def get_group(user_id: int, limit: int, offset: int = 0):
     if limit == -1:
-        limit = get_total_groups()
+        limit = get_total_groups(user_id)
 
     groups = execute(
-        f'SELECT * FROM user_group c ORDER BY c.group_name ASC LIMIT {limit} OFFSET {offset}',
+        f'SELECT * FROM user_group c WHERE c.user_id = {user_id} ORDER BY c.group_name ASC LIMIT {limit} OFFSET {offset}',
+    )
+
+    if not isinstance(groups, list):
+        raise Exception('Groups can not be fetched')
+
+    return [
+        GroupModel.model_validate(
+            {
+                'id': group[0],
+                'user_id': group[1],
+                'group_name': group[2],
+                'group_id': group[3],
+            }
+        )
+        for group in groups
+    ]
+
+
+
+def get_groups(user_id: int, limit: int, offset: int = 0):
+    if limit == -1:
+        limit = get_total_groups(user_id)
+
+    groups = execute(
+        f'SELECT * FROM user_group c WHERE c.user_id = {user_id} ORDER BY c.group_name ASC LIMIT {limit} OFFSET {offset}',
     )
 
     if not isinstance(groups, list):

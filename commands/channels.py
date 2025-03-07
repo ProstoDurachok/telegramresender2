@@ -19,6 +19,9 @@ from database import (
     delete_channel,
     get_channel,
     get_channels,
+    get_channels_by_user,
+    get_user_channels,
+    get_total_user_channels,
     get_total_channels,
     get_user,
     save_channel,
@@ -57,8 +60,8 @@ async def channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f'User {sender.id} requested channels [Page: {page+1}]')
 
-    db_channels_count = get_total_channels()
-    db_channels = get_channels(limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
+    db_channels_count = get_total_user_channels(sender.id)
+    db_channels = get_user_channels(sender.id, limit=CHANNELS_PER_PAGE, offset=page * CHANNELS_PER_PAGE)
 
     keyboard = []
     navigation_buttons = []
@@ -84,7 +87,7 @@ async def channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton('Следующая ➡️', callback_data='channels_next_page')
         )
 
-    if user.role == 'admin':
+    if user.role == 'admin' or user.role == 'operator':
         channels_buttons.append(
             InlineKeyboardButton('➕ Добавить канал', callback_data='channels_add')
         )
@@ -345,10 +348,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == 'channels_all':
         logger.info(f'User {user.id} selected all channels')
 
-        selected_channels = [channel.channel_id for channel in get_channels(-1)]
+        # Получаем только доступные пользователю каналы
+        accessible_channels = [
+            channel.channel_id for channel in get_user_channels(user.id)
+        ]
+        
+        # Сохраняем только доступные каналы
+        selected_channels = [channel.channel_id for channel in get_channels(-1) if channel.channel_id in accessible_channels]
+        
         context.user_data['selected_channels'] = selected_channels
 
         return await channels(update, context)
+
 
     elif data == 'channels_clear':
         logger.info(f'User {user.id} cleared selected channels')

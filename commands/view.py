@@ -33,4 +33,4 @@ async def view_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Обработчик команды
 handler = CommandHandler('view_user', view_user_command)
-command = (BotCommand('view_user', 'Просмотр всех пользователей'), handler)
+command = (BotCommand('view_user', 'Просмотр всех пользователей (только для админов)'), handler)
